@@ -9,7 +9,7 @@ import shapely.vectorized
 # import geopandas as gpd
 from shapely.prepared import prep
 
-RURAL = False]
+RURAL = False
 
 rural_data = pd.read_csv("Rural_NaNdeleted.csv", delimiter = ",", low_memory=False)
 urban_data = pd.read_csv("Urban_NaNdeleted.csv", delimiter = ",", low_memory=False)
