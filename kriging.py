@@ -9,6 +9,8 @@ import shapely.vectorized
 # import geopandas as gpd
 from shapely.prepared import prep
 
+RURAL = False]
+
 rural_data = pd.read_csv("Rural_NaNdeleted.csv", delimiter = ",", low_memory=False)
 urban_data = pd.read_csv("Urban_NaNdeleted.csv", delimiter = ",", low_memory=False)
 
@@ -46,14 +48,13 @@ urban_lons = urban_data["lon"].unique()
 
 
 # first, pick a single time and focus on rural data
-date0 = rural_data.iloc[0].date
-rural_data0 = rural_data[rural_data["date"]==date0]
+date0 = urban_data.iloc[0].date
+rural_data0 = urban_data[urban_data["date"]==date0]
 rural_no2_0 = rural_data0.no2.to_numpy()
 rural_lat_0 = rural_data0.lat.to_numpy()
 rural_lon_0 = rural_data0.lon.to_numpy()
 
 n_points = len(rural_lat_0)
-print(n_points)
 n_pairs = int(n_points*(n_points-1)/2)
 
 distances = np.zeros(n_pairs)
@@ -68,9 +69,9 @@ for i in range(n_points):
 
 # get experimental variogram from raw variogram with 5 intervals, spaced
 # such that an equal number of raw data are in each interval
-sorted_dists = np.split(np.sort(distances), 5)
+sorted_dists = np.array_split(np.sort(distances), 5)
 dist_sorted_inds = np.argsort(distances)
-dist_sorted_no2s = np.split(no2_diffs[dist_sorted_inds], 5)
+dist_sorted_no2s = np.array_split(no2_diffs[dist_sorted_inds], 5)
 bins = np.array([(d[0]+d[-1])/2 for d in sorted_dists])
 exp_vari = np.array([np.mean(sno2) for sno2 in sorted_dists])
 
@@ -123,10 +124,16 @@ XX, YY = np.meshgrid(longrid, latgrid)
 interp_no2 = np.zeros(XX.shape)
 
 # find weights
-for i, x in enumerate(longrid):
-    for j, y in enumerate(latgrid):
-        interp_distances = np.array([((x-rural_lons[k])**2+(y-rural_lats[k])**2)**0.5 for k in range(n_points)])
-        b = vari_fit(interp_distances)
+if RURAL:
+    for i, x in enumerate(longrid):
+        for j, y in enumerate(latgrid):
+            interp_distances = np.array([((x-rural_lons[k])**2+(y-rural_lats[k])**2)**0.5 for k in range(n_points)])
+            b = vari_fit(interp_distances)
+else:
+    for i, x in enumerate(longrid):
+        for j, y in enumerate(latgrid):
+            interp_distances = np.array([((x-urban_lons[k])**2+(y-urban_lats[k])**2)**0.5 for k in range(n_points)])
+            b = vari_fit(interp_distances)
 
         # print(b)
 
@@ -160,7 +167,6 @@ for i in range(XX.shape[0]):
         # contains[i, j] = regions_prep[14].contains(Point(XX[i, j], YY[i, j]))
 
 contains = np.any(contains, axis=2)
-print(contains.shape)
 
 # print(contains)
 # gdf = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
