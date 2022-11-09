@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from shapely.geometry import Point
 import shapely.vectorized
-# import geopandas as gpd
 from shapely.prepared import prep
 
-RURAL = False
+RURAL = True
+BOTH = False
 
 rural_data = pd.read_csv("Rural_NaNdeleted.csv", delimiter = ",", low_memory=False)
 urban_data = pd.read_csv("Urban_NaNdeleted.csv", delimiter = ",", low_memory=False)
@@ -48,13 +48,17 @@ urban_lons = urban_data["lon"].unique()
 
 
 # first, pick a single time and focus on rural data
-date0 = urban_data.iloc[0].date
-rural_data0 = urban_data[urban_data["date"]==date0]
-rural_no2_0 = rural_data0.no2.to_numpy()
-rural_lat_0 = rural_data0.lat.to_numpy()
-rural_lon_0 = rural_data0.lon.to_numpy()
+if RURAL:
+    date0 = rural_data.iloc[0].date
+    data0 = rural_data[rural_data["date"]==date0]
+else:
+    date0 = urban_data.iloc[0].date
+    data0 = urban_data[urban_data["date"]==date0]
+no2_0 = data0.no2.to_numpy()
+lat_0 = data0.lat.to_numpy()
+lon_0 = data0.lon.to_numpy()
 
-n_points = len(rural_lat_0)
+n_points = len(lat_0)
 n_pairs = int(n_points*(n_points-1)/2)
 
 distances = np.zeros(n_pairs)
@@ -63,8 +67,8 @@ no2_diffs = np.zeros(n_pairs)
 ind=0
 for i in range(n_points):
     for j in range(i+1, n_points):
-        distances[ind] = ((rural_lat_0[i]-rural_lat_0[j])**2 + (rural_lon_0[i]-rural_lon_0[j])**2)**0.5
-        no2_diffs[ind] = 0.5 * (rural_no2_0[i]-rural_no2_0[j])**2
+        distances[ind] = ((lat_0[i]-lat_0[j])**2 + (lon_0[i]-lon_0[j])**2)**0.5
+        no2_diffs[ind] = 0.5 * (no2_0[i]-no2_0[j])**2
         ind += 1
 
 # get experimental variogram from raw variogram with 5 intervals, spaced
@@ -91,10 +95,10 @@ print(FIT)
 h_hires = np.linspace(0, 4, 1000)
 
 # get model variogram matrix for kriging
-distance_matrix = ((np.stack([rural_lat_0 for i in range(n_points)], axis=0)
-              -np.stack([rural_lat_0 for i in range(n_points)], axis=1))**2 
-            + (np.stack([rural_lon_0 for i in range(n_points)], axis=0)
-            -np.stack([rural_lon_0 for i in range(n_points)], axis=1))**2)**0.5
+distance_matrix = ((np.stack([lat_0 for i in range(n_points)], axis=0)
+              -np.stack([lat_0 for i in range(n_points)], axis=1))**2 
+            + (np.stack([lon_0 for i in range(n_points)], axis=0)
+            -np.stack([lon_0 for i in range(n_points)], axis=1))**2)**0.5
 
 # variogram_matrix = (np.stack([rural_no2_0 for i in range(n_points)], axis=0)
 #               -np.stack([rural_no2_0 for i in range(n_points)], axis=1))**2 * 0.5
@@ -129,20 +133,21 @@ if RURAL:
         for j, y in enumerate(latgrid):
             interp_distances = np.array([((x-rural_lons[k])**2+(y-rural_lats[k])**2)**0.5 for k in range(n_points)])
             b = vari_fit(interp_distances)
+
+            weights = np.matmul(inverse_variogram_matrix, b)
+            # weights /= np.sum(weights) # normalisation
+
+            interp_no2[j, i] = np.dot(weights, no2_0)
 else:
     for i, x in enumerate(longrid):
         for j, y in enumerate(latgrid):
             interp_distances = np.array([((x-urban_lons[k])**2+(y-urban_lats[k])**2)**0.5 for k in range(n_points)])
             b = vari_fit(interp_distances)
 
-        # print(b)
+            weights = np.matmul(inverse_variogram_matrix, b)
+            # weights /= np.sum(weights) # normalisation
 
-        weights = np.matmul(inverse_variogram_matrix, b)
-        # weights /= np.sum(weights) # normalisation
-
-        interp_no2[j, i] = np.dot(weights, rural_no2_0)
-
-
+            interp_no2[j, i] = np.dot(weights, no2_0)
 
 # Downloaded from https://gadm.org/download_country.html
 fname = 'gadm41_NLD_1.shp' #0 is country border, 1 is provinces, 2 is municipalities
@@ -175,19 +180,19 @@ contains = np.any(contains, axis=2)
 masked_no2 = np.where(contains, interp_no2, np.nan)
 
 fig = plt.figure(figsize=(8,6))
-ax = plt.axes(projection=ccrs.Mercator())
+ax = plt.axes(projection=ccrs.Mollweide())
 
 plt.title("NO2 Concentrations on "+str(date0)+" (Kriging)")
 ax.coastlines(resolution='10m')
 
-ax.set_extent([3, 7.5, 50.5, 54], ccrs.Mercator())
+ax.set_extent([3, 7.5, 50.5, 54], ccrs.Mollweide())
 
-ax.plot(urban_lons, urban_lats, ".", markersize=10, transform=ccrs.Mercator(), label="Urban Data")
-ax.plot(rural_lons, rural_lats, ".", markersize=10, transform=ccrs.Mercator(), label="Rural Data")
+ax.plot(urban_lons, urban_lats, ".", markersize=10, transform=ccrs.Mollweide(), label="Urban Data")
+ax.plot(rural_lons, rural_lats, ".", markersize=10, transform=ccrs.Mollweide(), label="Rural Data")
 
 no2mesh = ax.pcolormesh(XX, YY, masked_no2, cmap=mpl.colormaps['Blues'].reversed())
 
-ax.add_geometries(adm1_shapes, ccrs.Mercator(), linewidth=0.5,
+ax.add_geometries(adm1_shapes, ccrs.Mollweide(), linewidth=0.5,
                   edgecolor='white', facecolor='None', alpha=1)
 
 cbar = fig.colorbar(no2mesh, ax=ax)
@@ -199,6 +204,9 @@ plt.figure()
 plt.plot(distances, no2_diffs, "k.")
 plt.plot(bins, exp_vari, "r.--", markersize=8)
 plt.plot(h_hires, vari_fit(h_hires), "g")
+
+plt.xlabel("Distance between each pair of stations ($^\circ$)")
+plt.ylabel("$1/2 \Delta NO_2^2$")
 
 plt.show()
 
