@@ -270,21 +270,21 @@ def plot_map(XX, YY, interp_no2, date0, lons, lats, dattype="rural"):
     masked_no2 = np.where(contains, interp_no2, np.nan)
 
     fig = plt.figure(figsize=(8,6))
-    ax = plt.axes(projection=ccrs.Mollweide())
+    ax = plt.axes()
 
     plt.title(str(date0)+" NO2 Concentrations (Kriging)")
-    ax.coastlines(resolution='10m')
+    # ax.coastlines(resolution='10m')
 
-    ax.set_extent([3, 7.5, 50.5, 54], ccrs.Mollweide())
+    ax.set_extent([3, 7.5, 50.5, 54])
 
     if dattype=="rural":
-        ax.plot(lons, lats, ".", markersize=10, transform=ccrs.Mollweide(), label="Rural Data")
+        ax.plot(lons, lats, ".", markersize=10, label="Rural Data")
     else:
-        ax.plot(lons, lats, ".", markersize=10, transform=ccrs.Mollweide(), label="Urban Data")
+        ax.plot(lons, lats, ".", markersize=10, label="Urban Data")
 
     no2mesh = ax.pcolormesh(XX, YY, masked_no2, cmap=mpl.colormaps['Blues'].reversed())
 
-    ax.add_geometries(adm1_shapes, ccrs.Mollweide(), linewidth=0.5,
+    ax.add_geometries(adm1_shapes, linewidth=0.5,
                     edgecolor='white', facecolor='None', alpha=1)
 
     cbar = fig.colorbar(no2mesh, ax=ax)
