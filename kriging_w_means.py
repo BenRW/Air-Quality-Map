@@ -145,7 +145,7 @@ def kriging_av(date0="Annual", dattype="rural", return_vgram=False):
         sites = urban_data.site.unique()
         lats_, lons_, no2_ = np.zeros(len(sites)), np.zeros(len(sites)), np.zeros(len(sites))
         for i, site in enumerate(sites):
-            atsite = rural_data[urban_data.site==site]
+            atsite = urban_data[urban_data.site==site]
             atsite_simple = atsite.drop(['Unnamed: 0', 'date', 'date_end', 'site', 'name'], axis=1)
             row = atsite_simple.mean(axis=0)
             lats_[i] = row.lat
@@ -227,24 +227,31 @@ def kriging_av(date0="Annual", dattype="rural", return_vgram=False):
     XX, YY = np.meshgrid(longrid, latgrid)
 
     interp_no2 = np.zeros(XX.shape)
+    uncertainty_no2 = np.zeros(XX.shape)
 
     # find weights
     for i, x in enumerate(longrid):
+        print(i)
         for j, y in enumerate(latgrid):
             interp_distances = np.array([((x-lons[k])**2+(y-lats[k])**2)**0.5 for k in range(n_points)])
             b = vari_fit(interp_distances)
 
             weights = np.matmul(inverse_variogram_matrix, b)
-            # weights /= np.sum(weights) # normalisation
 
             interp_no2[j, i] = np.dot(weights, no2_0)
 
-    if return_vgram:
-        return XX, YY, interp_no2, date0, lons, lats, distances, no2_diffs, bins, exp_vari, h_hires, vari_fit
-    else:
-        return XX, YY, interp_no2, date0, lons, lats
+            weightmult = ((np.stack([weights for i in range(n_points)], axis=0)
+                *np.stack([weights for i in range(n_points)], axis=1)))
+            uncertainty_no2[j, i] = - np.sum(weightmult * variogram_matrix) + 2*np.sum(weights*b)
 
-def plot_map(XX, YY, interp_no2, date0, lons, lats, dattype="rural"):
+    uncertainty_no2 = np.sqrt(uncertainty_no2)
+
+    if return_vgram:
+        return XX, YY, interp_no2, uncertainty_no2, date0, lons, lats, distances, no2_diffs, bins, exp_vari, h_hires, vari_fit
+    else:
+        return XX, YY, interp_no2, uncertainty_no2, date0, lons, lats
+
+def plot_map(XX, YY, interp_no2, uncertainty_no2, date0, lons, lats, dattype="rural"):
     # Downloaded from https://gadm.org/download_country.html
     fname = 'gadm41_NLD_1.shp' #0 is country border, 1 is provinces, 2 is municipalities
 
@@ -268,32 +275,72 @@ def plot_map(XX, YY, interp_no2, date0, lons, lats, dattype="rural"):
 
     contains = np.any(contains, axis=2)
     masked_no2 = np.where(contains, interp_no2, np.nan)
+    masked_unc = np.where(contains, uncertainty_no2, np.nan)
 
     fig = plt.figure(figsize=(8,6))
-    ax = plt.axes()
+    ax = plt.axes(projection=ccrs.Mollweide())
 
-    plt.title(str(date0)+" NO2 Concentrations (Kriging)")
-    # ax.coastlines(resolution='10m')
+    ax.set_title(str(date0)+" NO2 Concentrations (Kriging)")
+    ax.coastlines(resolution='10m')
 
-    ax.set_extent([3, 7.5, 50.5, 54])
+    ax.set_extent([3, 7.5, 50.5, 54], ccrs.Mollweide())
 
     if dattype=="rural":
-        ax.plot(lons, lats, ".", markersize=10, label="Rural Data")
+        ax.plot(lons, lats, ".", markersize=10, transform=ccrs.Mollweide(), label="Rural Data")
     else:
-        ax.plot(lons, lats, ".", markersize=10, label="Urban Data")
+        ax.plot(lons, lats, ".", markersize=10, transform=ccrs.Mollweide(), label="Urban Data")
 
     no2mesh = ax.pcolormesh(XX, YY, masked_no2, cmap=mpl.colormaps['Blues'].reversed())
 
-    ax.add_geometries(adm1_shapes, linewidth=0.5,
+    ax.add_geometries(adm1_shapes, ccrs.Mollweide(), linewidth=0.5,
                     edgecolor='white', facecolor='None', alpha=1)
 
     cbar = fig.colorbar(no2mesh, ax=ax)
     cbar.set_label("NO2 Concentration [$\mu g m^{-3}$]")
 
     ax.legend()
-    plt.show()
+
+    # plotting estimated uncertainties
+    fig2 = plt.figure(figsize=(8,6))
+    ax2 = plt.axes(projection=ccrs.Mollweide())
+
+    ax2.set_title(str(date0)+" Estimated Uncertainty in NO2 Concentrations (Kriging)")
+    ax2.coastlines(resolution='10m')
+
+    ax2.set_extent([3, 7.5, 50.5, 54], ccrs.Mollweide())
+
+    if dattype=="rural":
+        ax2.plot(lons, lats, ".", markersize=10, transform=ccrs.Mollweide(), label="Rural Data")
+    else:
+        ax2.plot(lons, lats, ".", markersize=10, transform=ccrs.Mollweide(), label="Urban Data")
+
+    uncmesh = ax2.pcolormesh(XX, YY, masked_unc, cmap=mpl.colormaps['Blues'].reversed())
+
+    ax2.add_geometries(adm1_shapes, ccrs.Mollweide(), linewidth=0.5,
+                    edgecolor='white', facecolor='None', alpha=1)
+
+    cbar = fig.colorbar(uncmesh, ax=ax2)
+    cbar.set_label("NO2 Concentration [$\mu g m^{-3}$]")
+
+    ax2.legend()
+
+def plot_vari(distances, no2_diffs, bins, exp_vari, h_hires, vari_fit):
+    plt.figure()
+    plt.plot(distances, no2_diffs, "k.", label="Raw Variogram")
+    plt.plot(bins, exp_vari, "r.--", markersize=8, label="Experimental Variogram")
+    plt.plot(h_hires, vari_fit(h_hires), "g", label="Variogram Model")
+
+    plt.xlabel("Distance between each pair of stations ($^\circ$)")
+    plt.ylabel("$1/2 \Delta NO_2^2$")
+    plt.title("Variogram")
+
+    plt.legend()
 
 
-XX, YY, interp_no2, date0, lons, lats = kriging_av(date0="DJF")
+XX, YY, interp_no2, uncertainty_no2, date0, lons, lats = kriging_av(date0="JJA", dattype="urban")
+# XX, YY, interp_no2, uncertainty_no2, date0, lons, lats, distances, no2_diffs, bins, exp_vari, h_hires, vari_fit = kriging_av(date0="DJF", return_vgram=True)
+
 # XX, YY, interp_no2, date0, lons, lats = kriging()
-plot_map(XX, YY, interp_no2, date0, lons, lats)
+plot_map(XX, YY, interp_no2, uncertainty_no2, date0, lons, lats, dattype="urban")
+# plot_vari(distances, no2_diffs, bins, exp_vari, h_hires, vari_fit)
+plt.show()
